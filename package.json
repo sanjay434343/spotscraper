@@ -1,14 +1,11 @@
 {
   "name": "spotify-scraper-vercel",
   "version": "1.0.0",
-  "main": "api/playlist.js",
   "type": "module",
   "scripts": {
     "start": "vercel dev"
   },
   "dependencies": {
-  "chrome-aws-lambda": "^10.1.0",
-  "puppeteer-core": "^20.1.2"
-}
-
+    "puppeteer": "^20.1.2"
+  }
 }
