@@ -1,62 +1,72 @@
-import chromium from "chrome-aws-lambda";
-import puppeteer from "puppeteer-core";
+// api/playlist.js
+const express = require("express");
+const puppeteer = require("puppeteer");
 
-export default async function handler(req, res) {
-  if (req.method === "GET" && !req.query.url) {
-    res.setHeader("Content-Type", "text/html");
-    return res.send(`<!DOCTYPE html>
-    <html><head><title>Spotify Scraper</title></head><body>
-    <h1>Spotify Playlist Scraper</h1>
-    <input id="url" placeholder="Paste Spotify Playlist URL" />
-    <button onclick="scrape()">Scrape</button>
-    <pre id="output"></pre>
-    <script>
-      async function scrape() {
-        const url = document.getElementById('url').value;
-        const res = await fetch('?url=' + encodeURIComponent(url));
-        const data = await res.json();
-        document.getElementById('output').textContent = JSON.stringify(data, null, 2);
-      }
-    </script>
-    </body></html>`);
+const app = express();
+
+// Serve a small UI for entering Spotify playlist URL
+app.get("/", (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Spotify Playlist Scraper</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          input, button { padding: 10px; font-size: 16px; }
+          .song { margin: 10px 0; }
+        </style>
+      </head>
+      <body>
+        <h2>Spotify Playlist Scraper</h2>
+        <form method="get" action="/scrape">
+          <input type="text" name="url" placeholder="Enter Spotify playlist URL" size="50" required/>
+          <button type="submit">Scrape</button>
+        </form>
+      </body>
+    </html>
+  `);
+});
+
+// Scraper endpoint
+app.get("/scrape", async (req, res) => {
+  const playlistUrl = req.query.url;
+  if (!playlistUrl) {
+    return res.status(400).json({ error: "Missing 'url' query parameter" });
   }
 
-  if (req.query.url) {
-    try {
-      const browser = await puppeteer.launch({
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath,
-        headless: chromium.headless,
+  try {
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const page = await browser.newPage();
+    await page.goto(playlistUrl, { waitUntil: "networkidle2" });
+
+    // Scrape playlist title and songs
+    const data = await page.evaluate(() => {
+      const title = document.querySelector("h1")?.innerText || "Untitled Playlist";
+
+      const songs = [];
+      document.querySelectorAll("[data-testid='tracklist-row']").forEach((row) => {
+        const trackName = row.querySelector("div span")?.innerText;
+        const artist = row.querySelector("a[data-testid='entity-link']")?.innerText;
+        if (trackName && artist) {
+          songs.push({ trackName, artist });
+        }
       });
 
-      const page = await browser.newPage();
-      await page.goto(req.query.url, { waitUntil: "networkidle2" });
-      await page.waitForTimeout(5000);
+      return { title, songs };
+    });
 
-      // scroll all tracks
-      let prevHeight;
-      while (true) {
-        const height = await page.evaluate("document.body.scrollHeight");
-        if (height === prevHeight) break;
-        prevHeight = height;
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-        await page.waitForTimeout(1500);
-      }
+    await browser.close();
 
-      const tracks = await page.evaluate(() => {
-        const rows = document.querySelectorAll("div[role='row']");
-        return Array.from(rows).map(row => {
-          const track = row.querySelector("span a span")?.innerText;
-          const artist = row.querySelector("div span a[href*='/artist/']")?.innerText;
-          return track && artist ? { track, artist } : null;
-        }).filter(Boolean);
-      });
-
-      await browser.close();
-      return res.status(200).json({ total: tracks.length, tracks });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    res.json(data);
+  } catch (err) {
+    console.error("Scraping error:", err);
+    res.status(500).json({ error: "Failed to scrape playlist" });
   }
-}
+});
+
+// Vercel expects a handler export
+module.exports = app;
