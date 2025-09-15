@@ -6,6 +6,6 @@
     "start": "vercel dev"
   },
   "dependencies": {
-    "puppeteer": "^20.1.2"
+     "puppeteer": "^24.10.2"
   }
 }
